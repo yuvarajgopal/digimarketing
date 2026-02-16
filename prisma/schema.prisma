@@ -51,21 +51,34 @@ model User {
   email        String    @unique
   name         String
   passwordHash String
-  role         Role      @default(MANAGER)
+  role         Role         @default(MANAGER)
+  authProvider AuthProvider @default(LOCAL)
+  cognitoSub   String?      @unique
   avatar       String?
+  clientId     String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  posts     Post[]
-  auditLogs AuditLog[]
-  sessions  Session[]
-  accounts  Account[]
+  client        Client?  @relation(fields: [clientId], references: [id])
+  posts         Post[]
+  auditLogs     AuditLog[]
+  sessions      Session[]
+  accounts      Account[]
+  subscriptions Subscription[]
+
+  @@index([clientId])
 }
 
 enum Role {
   ADMIN
   MANAGER
   VIEWER
+  CLIENT
+}
+
+enum AuthProvider {
+  LOCAL
+  COGNITO
 }
 
 model Client {
@@ -78,18 +91,23 @@ model Client {
   industry  String?
   logo      String?
   notes     String?
+  aiProfile Json?        // { brandVoice, guidelines, targetAudience, competitors, forbiddenWords, samplePosts }
   status    ClientStatus @default(ACTIVE)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  platformConnections PlatformConnection[]
-  posts               Post[]
-  campaigns           Campaign[]
-  analyticsSnapshots  AnalyticsSnapshot[]
-  leads               Lead[]
-  billingRecords      BillingRecord[]
-  reports             Report[]
-  tags                ClientTag[]
+  platformConnections  PlatformConnection[]
+  posts                Post[]
+  campaigns            Campaign[]
+  analyticsSnapshots   AnalyticsSnapshot[]
+  leads                Lead[]
+  billingRecords       BillingRecord[]
+  clientSubscriptions  ClientSubscription[]
+  reports              Report[]
+  tags                 ClientTag[]
+  users                User[]
+  webTrafficSnapshots  WebTrafficSnapshot[]
+  audienceSnapshots    AudienceSnapshot[]
 }
 
 enum ClientStatus {
@@ -98,22 +116,42 @@ enum ClientStatus {
   CHURNED
 }
 
-model PlatformConnection {
-  id             String           @id @default(cuid())
-  clientId       String
-  platform       Platform
-  accessToken    String
-  refreshToken   String?
-  tokenExpiresAt DateTime?
-  accountId      String?
-  accountName    String?
-  scopes         String[]
-  status         ConnectionStatus @default(ACTIVE)
+model AgencyConnection {
+  id              String           @id @default(cuid())
+  platform        Platform
+  accessToken     String           // Encrypted - agency's API token
+  refreshToken    String?          // Encrypted
+  tokenExpiresAt  DateTime?
+  accountName     String?          // e.g. "Our Facebook Business"
+  appId           String?          // Platform app/client ID
+  status          ConnectionStatus @default(ACTIVE)
   lastHealthCheck DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientConnections PlatformConnection[]
+
+  @@unique([platform])
+}
+
+model PlatformConnection {
+  id                 String           @id @default(cuid())
+  clientId           String
+  platform           Platform
+  accessToken        String?          // Optional when using agency credentials
+  refreshToken       String?
+  tokenExpiresAt     DateTime?
+  accountId          String?
+  accountName        String?
+  scopes             String[]
+  status             ConnectionStatus @default(ACTIVE)
+  lastHealthCheck    DateTime?
+  agencyConnectionId String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  client           Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agencyConnection AgencyConnection? @relation(fields: [agencyConnectionId], references: [id])
 
   @@unique([clientId, platform, accountId])
   @@index([clientId])
@@ -153,11 +191,12 @@ model Post {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  createdBy User       @relation(fields: [createdById], references: [id])
-  template  Template?  @relation(fields: [templateId], references: [id])
+  client    Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdBy User          @relation(fields: [createdById], references: [id])
+  template  Template?     @relation(fields: [templateId], references: [id])
   media     PostMedia[]
   tags      PostTag[]
+  metrics   PostMetrics[]
 
   @@index([clientId])
   @@index([status])
@@ -253,7 +292,8 @@ model Campaign {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client  Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  metrics CampaignMetrics[]
 
   @@index([clientId])
   @@index([platform])
@@ -334,7 +374,8 @@ model BillingRecord {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client   Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  payments Payment[]
 
   @@index([clientId])
 }
@@ -354,6 +395,112 @@ enum BillingStatus {
   CANCELLED
 }
 
+// ─── Payment Gateway Models ──────────────────────────────────────
+
+enum PaymentGateway {
+  STRIPE
+  RAZORPAY
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  INCOMPLETE
+  TRIALING
+}
+
+enum SubscriptionPlan {
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+model Payment {
+  id                    String         @id @default(cuid())
+  billingRecordId       String
+  gateway               PaymentGateway
+  status                PaymentStatus  @default(PENDING)
+  amount                Decimal        @db.Decimal(12, 2)
+  currency              String         @default("USD")
+  stripePaymentIntentId String?
+  stripeSessionId       String?
+  razorpayOrderId       String?
+  razorpayPaymentId     String?
+  gatewayResponse       Json?
+  failureReason         String?
+  idempotencyKey        String         @unique
+  paidAt                DateTime?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  billingRecord BillingRecord @relation(fields: [billingRecordId], references: [id], onDelete: Cascade)
+
+  @@index([billingRecordId])
+  @@index([stripeSessionId])
+  @@index([razorpayOrderId])
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  userId                 String
+  plan                   SubscriptionPlan
+  status                 SubscriptionStatus @default(INCOMPLETE)
+  gateway                PaymentGateway
+  stripeCustomerId       String?
+  stripeSubscriptionId   String?
+  razorpaySubscriptionId String?
+  amount                 Decimal            @db.Decimal(12, 2)
+  currency               String             @default("USD")
+  interval               String             @default("monthly")
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean            @default(false)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeSubscriptionId])
+  @@index([razorpaySubscriptionId])
+}
+
+model ClientSubscription {
+  id                     String             @id @default(cuid())
+  clientId               String
+  name                   String             // e.g. "Monthly Retainer", "Ad Management Fee"
+  amount                 Decimal            @db.Decimal(12, 2)
+  currency               String             @default("USD")
+  interval               String             @default("monthly") // monthly, yearly
+  gateway                PaymentGateway
+  status                 SubscriptionStatus @default(INCOMPLETE)
+  stripeCustomerId       String?
+  stripeSubscriptionId   String?
+  stripePriceId          String?
+  razorpaySubscriptionId String?
+  razorpayPlanId         String?
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean            @default(false)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([stripeSubscriptionId])
+}
+
 model Report {
   id       String     @id @default(cuid())
   clientId String
@@ -361,9 +508,10 @@ model Report {
   title    String
   dateFrom DateTime
   dateTo   DateTime
-  data     Json
-  fileUrl  String?
-  sentAt   DateTime?
+  data      Json
+  narrative String?  @db.Text  // AI-generated executive summary
+  fileUrl   String?
+  sentAt    DateTime?
   sentTo   String[]
   createdAt DateTime  @default(now())
 
@@ -398,6 +546,90 @@ model AuditLog {
   @@index([userId])
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+// ─── Client Analytics Models ──────────────────────────────────────
+
+model PostMetrics {
+  id             String   @id @default(cuid())
+  postId         String
+  platform       Platform
+  impressions    Int      @default(0)
+  reach          Int      @default(0)
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  shares         Int      @default(0)
+  clicks         Int      @default(0)
+  saves          Int      @default(0)
+  videoViews     Int      @default(0)
+  engagementRate Float    @default(0)
+  fetchedAt      DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, platform])
+  @@index([postId])
+}
+
+model CampaignMetrics {
+  id          String   @id @default(cuid())
+  campaignId  String
+  date        DateTime @db.Date
+  spend       Decimal  @default(0) @db.Decimal(12, 2)
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  ctr         Float    @default(0)
+  conversions Int      @default(0)
+  cpc         Decimal  @default(0) @db.Decimal(12, 4)
+  cpm         Decimal  @default(0) @db.Decimal(12, 4)
+  cpa         Decimal  @default(0) @db.Decimal(12, 4)
+  roas        Float    @default(0)
+  createdAt   DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, date])
+  @@index([campaignId])
+  @@index([date])
+}
+
+model WebTrafficSnapshot {
+  id                 String   @id @default(cuid())
+  clientId           String
+  date               DateTime @db.Date
+  visits             Int      @default(0)
+  uniqueVisitors     Int      @default(0)
+  pageViews          Int      @default(0)
+  bounceRate         Float    @default(0)
+  avgSessionDuration Float    @default(0)
+  topReferrer        String?
+  referralBreakdown  Json?
+  createdAt          DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, date])
+  @@index([clientId, date])
+}
+
+model AudienceSnapshot {
+  id           String   @id @default(cuid())
+  clientId     String
+  platform     Platform
+  date         DateTime @db.Date
+  followers    Int      @default(0)
+  following    Int      @default(0)
+  newFollowers Int      @default(0)
+  demographics Json?
+  createdAt    DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, platform, date])
+  @@index([clientId, date])
+  @@index([platform])
 }
 
 // ─── Tag Junction Tables ──────────────────────────────────────────

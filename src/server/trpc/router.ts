@@ -9,6 +9,11 @@ import { reportRouter } from "./routers/report";
 import { leadRouter } from "./routers/lead";
 import { billingRouter } from "./routers/billing";
 import { platformRouter } from "./routers/platform";
+import { agencyPlatformRouter } from "./routers/agencyPlatform";
+import { aiRouter } from "./routers/ai";
+import { dashboardRouter } from "./routers/dashboard";
+import { paymentRouter } from "./routers/payment";
+import { clientAnalyticsRouter } from "./routers/clientAnalytics";
 
 export const appRouter = router({
   client: clientRouter,
@@ -21,6 +26,11 @@ export const appRouter = router({
   lead: leadRouter,
   billing: billingRouter,
   platform: platformRouter,
+  agencyPlatform: agencyPlatformRouter,
+  ai: aiRouter,
+  dashboard: dashboardRouter,
+  payment: paymentRouter,
+  clientAnalytics: clientAnalyticsRouter,
 });
 
 export type AppRouter = typeof appRouter;

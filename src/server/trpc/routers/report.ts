@@ -1,12 +1,13 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { TRPCError } from "@trpc/server";
+import { router, scopedProcedure, agencyProcedure } from "../trpc";
 import { ReportType } from "@prisma/client";
 
 export const reportRouter = router({
-  list: protectedProcedure
+  list: scopedProcedure
     .input(
       z.object({
-        clientId: z.string().cuid().optional(),
+        clientId: z.string().min(1).optional(),
         type: z.nativeEnum(ReportType).optional(),
         limit: z.number().min(1).max(100).default(20),
         cursor: z.string().optional(),
@@ -15,7 +16,8 @@ export const reportRouter = router({
     .query(async ({ ctx, input }) => {
       const { clientId, type, limit = 20, cursor } = input || {};
       const where: any = {};
-      if (clientId) where.clientId = clientId;
+      const effectiveClientId = ctx.scopedClientId || clientId;
+      if (effectiveClientId) where.clientId = effectiveClientId;
       if (type) where.type = type;
 
       const reports = await ctx.db.report.findMany({
@@ -35,19 +37,23 @@ export const reportRouter = router({
       return { reports, nextCursor };
     }),
 
-  byId: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  byId: scopedProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.report.findUniqueOrThrow({
+      const report = await ctx.db.report.findUniqueOrThrow({
         where: { id: input.id },
         include: { client: true },
       });
+      if (ctx.scopedClientId && report.clientId !== ctx.scopedClientId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return report;
     }),
 
-  create: protectedProcedure
+  create: agencyProcedure
     .input(
       z.object({
-        clientId: z.string().cuid(),
+        clientId: z.string().min(1),
         type: z.nativeEnum(ReportType),
         title: z.string().min(1),
         dateFrom: z.string().datetime(),
@@ -66,10 +72,10 @@ export const reportRouter = router({
       });
     }),
 
-  send: protectedProcedure
+  send: agencyProcedure
     .input(
       z.object({
-        id: z.string().cuid(),
+        id: z.string().min(1),
         to: z.array(z.string().email()),
         subject: z.string(),
         message: z.string(),
@@ -86,8 +92,8 @@ export const reportRouter = router({
       });
     }),
 
-  delete: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  delete: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.report.delete({ where: { id: input.id } });
       return { success: true };

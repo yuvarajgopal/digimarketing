@@ -19,7 +19,11 @@ async function processPostPublish(job: Job) {
     where: { id: postId },
     include: {
       client: {
-        include: { platformConnections: true },
+        include: {
+          platformConnections: {
+            include: { agencyConnection: true },
+          },
+        },
       },
       media: { include: { asset: true } },
     },
@@ -45,9 +49,30 @@ async function processPostPublish(job: Job) {
     }
 
     try {
+      // Resolve credentials: agency connection takes priority when linked
+      let accessToken: string;
+      let refreshToken: string | undefined;
+
+      if (connection.agencyConnectionId && connection.agencyConnection) {
+        // Use agency's API credentials
+        accessToken = decrypt(connection.agencyConnection.accessToken);
+        refreshToken = connection.agencyConnection.refreshToken
+          ? decrypt(connection.agencyConnection.refreshToken)
+          : undefined;
+      } else if (connection.accessToken) {
+        // Use client's own credentials
+        accessToken = decrypt(connection.accessToken);
+        refreshToken = connection.refreshToken
+          ? decrypt(connection.refreshToken)
+          : undefined;
+      } else {
+        results[platform] = { success: false, error: "No credentials available" };
+        continue;
+      }
+
       const credentials = {
-        accessToken: decrypt(connection.accessToken),
-        refreshToken: connection.refreshToken ? decrypt(connection.refreshToken) : undefined,
+        accessToken,
+        refreshToken,
         accountId: connection.accountId || undefined,
       };
 

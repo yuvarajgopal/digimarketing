@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, agencyProcedure } from "../trpc";
 import { TemplateType, Platform } from "@prisma/client";
 
 export const templateRouter = router({
-  list: protectedProcedure
+  list: agencyProcedure
     .input(
       z.object({
         type: z.nativeEnum(TemplateType).optional(),
@@ -42,8 +42,8 @@ export const templateRouter = router({
       return { templates, nextCursor };
     }),
 
-  byId: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  byId: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       return ctx.db.template.findUniqueOrThrow({
         where: { id: input.id },
@@ -51,7 +51,7 @@ export const templateRouter = router({
       });
     }),
 
-  create: protectedProcedure
+  create: agencyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -60,22 +60,24 @@ export const templateRouter = router({
         content: z.string(),
         platforms: z.array(z.nativeEnum(Platform)).optional(),
         tags: z.array(z.string()).optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { tags, ...data } = input;
+      const { tags, metadata, ...data } = input;
       return ctx.db.template.create({
         data: {
           ...data,
+          metadata: metadata as any,
           tags: tags ? { create: tags.map((tag) => ({ tag })) } : undefined,
         },
       });
     }),
 
-  update: protectedProcedure
+  update: agencyProcedure
     .input(
       z.object({
-        id: z.string().cuid(),
+        id: z.string().min(1),
         name: z.string().min(1).optional(),
         description: z.string().optional(),
         content: z.string().optional(),
@@ -92,8 +94,8 @@ export const templateRouter = router({
       return ctx.db.template.update({ where: { id }, data });
     }),
 
-  delete: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  delete: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.template.delete({ where: { id: input.id } });
       return { success: true };

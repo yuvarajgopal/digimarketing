@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, scopedProcedure, agencyProcedure } from "../trpc";
 import { LeadStatus, Platform } from "@prisma/client";
 
 export const leadRouter = router({
-  list: protectedProcedure
+  list: scopedProcedure
     .input(
       z.object({
-        clientId: z.string().cuid().optional(),
+        clientId: z.string().min(1).optional(),
         status: z.nativeEnum(LeadStatus).optional(),
         source: z.nativeEnum(Platform).optional(),
         search: z.string().optional(),
@@ -17,7 +17,8 @@ export const leadRouter = router({
     .query(async ({ ctx, input }) => {
       const { clientId, status, source, search, limit = 50, cursor } = input || {};
       const where: any = {};
-      if (clientId) where.clientId = clientId;
+      const effectiveClientId = ctx.scopedClientId || clientId;
+      if (effectiveClientId) where.clientId = effectiveClientId;
       if (status) where.status = status;
       if (source) where.source = source;
       if (search) {
@@ -45,8 +46,8 @@ export const leadRouter = router({
       return { leads, nextCursor };
     }),
 
-  byId: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  byId: scopedProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       return ctx.db.lead.findUniqueOrThrow({
         where: { id: input.id },
@@ -54,10 +55,10 @@ export const leadRouter = router({
       });
     }),
 
-  create: protectedProcedure
+  create: agencyProcedure
     .input(
       z.object({
-        clientId: z.string().cuid(),
+        clientId: z.string().min(1),
         source: z.nativeEnum(Platform).optional(),
         campaignId: z.string().optional(),
         name: z.string().optional(),
@@ -72,10 +73,10 @@ export const leadRouter = router({
       return ctx.db.lead.create({ data: input as any });
     }),
 
-  updateStatus: protectedProcedure
+  updateStatus: agencyProcedure
     .input(
       z.object({
-        id: z.string().cuid(),
+        id: z.string().min(1),
         status: z.nativeEnum(LeadStatus),
       })
     )
@@ -86,18 +87,19 @@ export const leadRouter = router({
       });
     }),
 
-  delete: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  delete: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.lead.delete({ where: { id: input.id } });
       return { success: true };
     }),
 
-  stats: protectedProcedure
-    .input(z.object({ clientId: z.string().cuid().optional() }).optional())
+  stats: scopedProcedure
+    .input(z.object({ clientId: z.string().min(1).optional() }).optional())
     .query(async ({ ctx, input }) => {
       const where: any = {};
-      if (input?.clientId) where.clientId = input.clientId;
+      const effectiveClientId = ctx.scopedClientId || input?.clientId;
+      if (effectiveClientId) where.clientId = effectiveClientId;
 
       const [total, newLeads, contacted, qualified, converted, lost] = await Promise.all([
         ctx.db.lead.count({ where }),

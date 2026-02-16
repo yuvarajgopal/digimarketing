@@ -1,13 +1,14 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { TRPCError } from "@trpc/server";
+import { router, scopedProcedure, agencyProcedure } from "../trpc";
 import { createPostSchema, updatePostSchema } from "@/lib/validations/post";
 import { PostStatus, Platform } from "@prisma/client";
 
 export const postRouter = router({
-  list: protectedProcedure
+  list: scopedProcedure
     .input(
       z.object({
-        clientId: z.string().cuid().optional(),
+        clientId: z.string().min(1).optional(),
         status: z.nativeEnum(PostStatus).optional(),
         platform: z.nativeEnum(Platform).optional(),
         search: z.string().optional(),
@@ -18,7 +19,8 @@ export const postRouter = router({
     .query(async ({ ctx, input }) => {
       const { clientId, status, platform, search, limit = 20, cursor } = input || {};
       const where: any = {};
-      if (clientId) where.clientId = clientId;
+      const effectiveClientId = ctx.scopedClientId || clientId;
+      if (effectiveClientId) where.clientId = effectiveClientId;
       if (status) where.status = status;
       if (platform) where.platforms = { has: platform };
       if (search) where.content = { contains: search, mode: "insensitive" };
@@ -45,10 +47,10 @@ export const postRouter = router({
       return { posts, nextCursor };
     }),
 
-  byId: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  byId: scopedProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.post.findUniqueOrThrow({
+      const post = await ctx.db.post.findUniqueOrThrow({
         where: { id: input.id },
         include: {
           client: true,
@@ -58,9 +60,13 @@ export const postRouter = router({
           tags: true,
         },
       });
+      if (ctx.scopedClientId && post.clientId !== ctx.scopedClientId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return post;
     }),
 
-  create: protectedProcedure
+  create: agencyProcedure
     .input(createPostSchema)
     .mutation(async ({ ctx, input }) => {
       const { mediaIds, tags, ...data } = input;
@@ -78,8 +84,8 @@ export const postRouter = router({
       return post;
     }),
 
-  update: protectedProcedure
-    .input(z.object({ id: z.string().cuid(), data: updatePostSchema }))
+  update: agencyProcedure
+    .input(z.object({ id: z.string().min(1), data: updatePostSchema }))
     .mutation(async ({ ctx, input }) => {
       const { mediaIds, tags, ...data } = input.data;
 
@@ -104,15 +110,15 @@ export const postRouter = router({
       });
     }),
 
-  delete: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  delete: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.post.delete({ where: { id: input.id } });
       return { success: true };
     }),
 
-  approve: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  approve: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       return ctx.db.post.update({
         where: { id: input.id },
@@ -124,8 +130,8 @@ export const postRouter = router({
       });
     }),
 
-  schedule: protectedProcedure
-    .input(z.object({ id: z.string().cuid(), scheduledAt: z.string().datetime() }))
+  schedule: agencyProcedure
+    .input(z.object({ id: z.string().min(1), scheduledAt: z.string().datetime() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.db.post.update({
         where: { id: input.id },
@@ -136,12 +142,12 @@ export const postRouter = router({
       });
     }),
 
-  scheduled: protectedProcedure
+  scheduled: scopedProcedure
     .input(
       z.object({
         from: z.string().datetime().optional(),
         to: z.string().datetime().optional(),
-        clientId: z.string().cuid().optional(),
+        clientId: z.string().min(1).optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
@@ -151,7 +157,8 @@ export const postRouter = router({
       };
       if (input?.from) where.scheduledAt = { ...where.scheduledAt, gte: new Date(input.from) };
       if (input?.to) where.scheduledAt = { ...where.scheduledAt, lte: new Date(input.to) };
-      if (input?.clientId) where.clientId = input.clientId;
+      const effectiveClientId = ctx.scopedClientId || input?.clientId;
+      if (effectiveClientId) where.clientId = effectiveClientId;
 
       return ctx.db.post.findMany({
         where,

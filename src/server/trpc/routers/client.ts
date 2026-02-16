@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { TRPCError } from "@trpc/server";
+import { router, adminProcedure, agencyProcedure, scopedProcedure } from "../trpc";
 import { createClientSchema, updateClientSchema } from "@/lib/validations/client";
 import { ClientStatus } from "@prisma/client";
 
 export const clientRouter = router({
-  list: protectedProcedure
+  list: agencyProcedure
     .input(
       z.object({
         status: z.nativeEnum(ClientStatus).optional(),
@@ -50,9 +51,12 @@ export const clientRouter = router({
       return { clients, nextCursor };
     }),
 
-  byId: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  byId: scopedProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
+      if (ctx.scopedClientId && input.id !== ctx.scopedClientId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
       const client = await ctx.db.client.findUniqueOrThrow({
         where: { id: input.id },
         include: {
@@ -72,7 +76,7 @@ export const clientRouter = router({
       return client;
     }),
 
-  create: protectedProcedure
+  create: agencyProcedure
     .input(createClientSchema)
     .mutation(async ({ ctx, input }) => {
       const { tags, ...data } = input;
@@ -85,10 +89,10 @@ export const clientRouter = router({
       return client;
     }),
 
-  update: protectedProcedure
+  update: adminProcedure
     .input(
       z.object({
-        id: z.string().cuid(),
+        id: z.string().min(1),
         data: updateClientSchema,
       })
     )
@@ -107,10 +111,10 @@ export const clientRouter = router({
       return client;
     }),
 
-  updateStatus: protectedProcedure
+  updateStatus: agencyProcedure
     .input(
       z.object({
-        id: z.string().cuid(),
+        id: z.string().min(1),
         status: z.nativeEnum(ClientStatus),
       })
     )
@@ -122,13 +126,13 @@ export const clientRouter = router({
     }),
 
   delete: adminProcedure
-    .input(z.object({ id: z.string().cuid() }))
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.client.delete({ where: { id: input.id } });
       return { success: true };
     }),
 
-  stats: protectedProcedure.query(async ({ ctx }) => {
+  stats: agencyProcedure.query(async ({ ctx }) => {
     const [total, active, paused, churned] = await Promise.all([
       ctx.db.client.count(),
       ctx.db.client.count({ where: { status: "ACTIVE" } }),

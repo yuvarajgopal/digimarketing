@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../trpc";
+import { router, scopedProcedure, agencyProcedure, adminProcedure } from "../trpc";
 import { BillingType, BillingStatus } from "@prisma/client";
 
 export const billingRouter = router({
-  list: protectedProcedure
+  list: scopedProcedure
     .input(
       z.object({
-        clientId: z.string().cuid().optional(),
+        clientId: z.string().min(1).optional(),
         status: z.nativeEnum(BillingStatus).optional(),
         type: z.nativeEnum(BillingType).optional(),
         period: z.string().optional(),
@@ -17,7 +17,8 @@ export const billingRouter = router({
     .query(async ({ ctx, input }) => {
       const { clientId, status, type, period, limit = 50, cursor } = input || {};
       const where: any = {};
-      if (clientId) where.clientId = clientId;
+      const effectiveClientId = ctx.scopedClientId || clientId;
+      if (effectiveClientId) where.clientId = effectiveClientId;
       if (status) where.status = status;
       if (type) where.type = type;
       if (period) where.period = period;
@@ -27,7 +28,10 @@ export const billingRouter = router({
         take: limit + 1,
         cursor: cursor ? { id: cursor } : undefined,
         orderBy: { createdAt: "desc" },
-        include: { client: { select: { id: true, name: true } } },
+        include: {
+          client: { select: { id: true, name: true, email: true } },
+          _count: { select: { payments: true } },
+        },
       });
 
       let nextCursor: string | undefined;
@@ -39,10 +43,10 @@ export const billingRouter = router({
       return { records, nextCursor };
     }),
 
-  create: protectedProcedure
+  create: agencyProcedure
     .input(
       z.object({
-        clientId: z.string().cuid(),
+        clientId: z.string().min(1),
         type: z.nativeEnum(BillingType),
         amount: z.number().positive(),
         currency: z.string().default("USD"),
@@ -60,10 +64,10 @@ export const billingRouter = router({
       });
     }),
 
-  updateStatus: protectedProcedure
+  updateStatus: agencyProcedure
     .input(
       z.object({
-        id: z.string().cuid(),
+        id: z.string().min(1),
         status: z.nativeEnum(BillingStatus),
       })
     )
@@ -74,16 +78,17 @@ export const billingRouter = router({
     }),
 
   delete: adminProcedure
-    .input(z.object({ id: z.string().cuid() }))
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.billingRecord.delete({ where: { id: input.id } });
       return { success: true };
     }),
 
-  summary: protectedProcedure
+  summary: scopedProcedure
     .input(z.object({ period: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const where: any = {};
+      if (ctx.scopedClientId) where.clientId = ctx.scopedClientId;
       if (input?.period) where.period = input.period;
 
       const records = await ctx.db.billingRecord.findMany({ where });

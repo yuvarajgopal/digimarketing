@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, agencyProcedure } from "../trpc";
 import { AssetType } from "@prisma/client";
 
 export const assetRouter = router({
-  list: protectedProcedure
+  list: agencyProcedure
     .input(
       z.object({
         type: z.nativeEnum(AssetType).optional(),
@@ -39,8 +39,8 @@ export const assetRouter = router({
       return { assets, nextCursor };
     }),
 
-  byId: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  byId: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       return ctx.db.asset.findUniqueOrThrow({
         where: { id: input.id },
@@ -48,7 +48,7 @@ export const assetRouter = router({
       });
     }),
 
-  create: protectedProcedure
+  create: agencyProcedure
     .input(
       z.object({
         name: z.string(),
@@ -74,10 +74,10 @@ export const assetRouter = router({
       });
     }),
 
-  update: protectedProcedure
+  update: agencyProcedure
     .input(
       z.object({
-        id: z.string().cuid(),
+        id: z.string().min(1),
         name: z.string().optional(),
         folder: z.string().optional().nullable(),
         tags: z.array(z.string()).optional(),
@@ -92,14 +92,14 @@ export const assetRouter = router({
       return ctx.db.asset.update({ where: { id }, data });
     }),
 
-  delete: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  delete: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.asset.delete({ where: { id: input.id } });
       return { success: true };
     }),
 
-  folders: protectedProcedure.query(async ({ ctx }) => {
+  folders: agencyProcedure.query(async ({ ctx }) => {
     const result = await ctx.db.asset.findMany({
       where: { folder: { not: null } },
       select: { folder: true },

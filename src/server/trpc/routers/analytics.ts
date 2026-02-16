@@ -1,12 +1,13 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { TRPCError } from "@trpc/server";
+import { router, scopedProcedure, agencyProcedure } from "../trpc";
 import { Platform } from "@prisma/client";
 
 export const analyticsRouter = router({
-  byClient: protectedProcedure
+  byClient: scopedProcedure
     .input(
       z.object({
-        clientId: z.string().cuid(),
+        clientId: z.string().min(1),
         platform: z.nativeEnum(Platform).optional(),
         dateFrom: z.string(),
         dateTo: z.string(),
@@ -14,8 +15,12 @@ export const analyticsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      const effectiveClientId = ctx.scopedClientId || input.clientId;
+      if (ctx.scopedClientId && input.clientId !== ctx.scopedClientId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
       const where: any = {
-        clientId: input.clientId,
+        clientId: effectiveClientId,
         date: {
           gte: new Date(input.dateFrom),
           lte: new Date(input.dateTo),
@@ -30,7 +35,7 @@ export const analyticsRouter = router({
       });
     }),
 
-  overview: protectedProcedure
+  overview: agencyProcedure
     .input(
       z.object({
         dateFrom: z.string(),
@@ -51,18 +56,21 @@ export const analyticsRouter = router({
       return snapshots;
     }),
 
-  platformSummary: protectedProcedure
+  platformSummary: scopedProcedure
     .input(
       z.object({
-        clientId: z.string().cuid(),
+        clientId: z.string().min(1),
         dateFrom: z.string(),
         dateTo: z.string(),
       })
     )
     .query(async ({ ctx, input }) => {
+      if (ctx.scopedClientId && input.clientId !== ctx.scopedClientId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
       const snapshots = await ctx.db.analyticsSnapshot.findMany({
         where: {
-          clientId: input.clientId,
+          clientId: ctx.scopedClientId || input.clientId,
           date: {
             gte: new Date(input.dateFrom),
             lte: new Date(input.dateTo),

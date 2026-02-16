@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc";
+import { router, agencyProcedure } from "../trpc";
 import { Platform, ConnectionStatus } from "@prisma/client";
 import { encrypt, decrypt } from "@/server/services/encryption";
 
 export const platformRouter = router({
-  connections: protectedProcedure
-    .input(z.object({ clientId: z.string().cuid() }))
+  connections: agencyProcedure
+    .input(z.object({ clientId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const connections = await ctx.db.platformConnection.findMany({
         where: { clientId: input.clientId },
@@ -18,28 +18,48 @@ export const platformRouter = router({
           scopes: true,
           lastHealthCheck: true,
           tokenExpiresAt: true,
+          agencyConnectionId: true,
           createdAt: true,
+          agencyConnection: {
+            select: {
+              id: true,
+              platform: true,
+              accountName: true,
+              status: true,
+            },
+          },
         },
       });
       return connections;
     }),
 
-  connect: protectedProcedure
+  connect: agencyProcedure
     .input(
       z.object({
-        clientId: z.string().cuid(),
+        clientId: z.string().min(1),
         platform: z.nativeEnum(Platform),
-        accessToken: z.string(),
+        accessToken: z.string().optional(),
         refreshToken: z.string().optional(),
         tokenExpiresAt: z.string().datetime().optional(),
         accountId: z.string().optional(),
         accountName: z.string().optional(),
         scopes: z.array(z.string()).optional(),
+        agencyConnectionId: z.string().min(1).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const encryptedAccess = encrypt(input.accessToken);
-      const encryptedRefresh = input.refreshToken ? encrypt(input.refreshToken) : undefined;
+      // If using agency credentials, accessToken is optional
+      // If self-managed, accessToken is required
+      if (!input.agencyConnectionId && !input.accessToken) {
+        throw new Error("Access token is required when not using agency credentials");
+      }
+
+      const encryptedAccess = input.accessToken
+        ? encrypt(input.accessToken)
+        : undefined;
+      const encryptedRefresh = input.refreshToken
+        ? encrypt(input.refreshToken)
+        : undefined;
 
       return ctx.db.platformConnection.create({
         data: {
@@ -47,24 +67,27 @@ export const platformRouter = router({
           platform: input.platform,
           accessToken: encryptedAccess,
           refreshToken: encryptedRefresh,
-          tokenExpiresAt: input.tokenExpiresAt ? new Date(input.tokenExpiresAt) : undefined,
+          tokenExpiresAt: input.tokenExpiresAt
+            ? new Date(input.tokenExpiresAt)
+            : undefined,
           accountId: input.accountId,
           accountName: input.accountName,
           scopes: input.scopes || [],
+          agencyConnectionId: input.agencyConnectionId,
           lastHealthCheck: new Date(),
         },
       });
     }),
 
-  disconnect: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  disconnect: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db.platformConnection.delete({ where: { id: input.id } });
       return { success: true };
     }),
 
-  healthCheck: protectedProcedure
-    .input(z.object({ id: z.string().cuid() }))
+  healthCheck: agencyProcedure
+    .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const connection = await ctx.db.platformConnection.findUniqueOrThrow({
         where: { id: input.id },
@@ -82,10 +105,10 @@ export const platformRouter = router({
       });
     }),
 
-  updateStatus: protectedProcedure
+  updateStatus: agencyProcedure
     .input(
       z.object({
-        id: z.string().cuid(),
+        id: z.string().min(1),
         status: z.nativeEnum(ConnectionStatus),
       })
     )

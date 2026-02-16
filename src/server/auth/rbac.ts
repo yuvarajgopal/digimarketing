@@ -4,6 +4,7 @@ const roleHierarchy: Record<Role, number> = {
   ADMIN: 3,
   MANAGER: 2,
   VIEWER: 1,
+  CLIENT: 0,
 };
 
 export function hasRole(userRole: Role, requiredRole: Role): boolean {

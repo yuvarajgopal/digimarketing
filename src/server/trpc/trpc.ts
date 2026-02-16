@@ -49,3 +49,49 @@ const enforceAdmin = t.middleware(({ ctx, next }) => {
 });
 
 export const adminProcedure = t.procedure.use(enforceAdmin);
+
+// Blocks CLIENT role users — for agency-only routes
+const enforceAgency = t.middleware(({ ctx, next }) => {
+  if (!ctx.session?.user) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+  if ((ctx.session.user as any).role === "CLIENT") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Agency access only" });
+  }
+  return next({
+    ctx: {
+      session: ctx.session,
+      user: ctx.session.user as { id: string; email: string; name: string; role: Role },
+    },
+  });
+});
+
+export const agencyProcedure = t.procedure.use(enforceAgency);
+
+// Any auth user, but adds ctx.scopedClientId for CLIENT users
+const enforceScoped = t.middleware(({ ctx, next }) => {
+  if (!ctx.session?.user) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+  const user = ctx.session.user as any;
+  const scopedClientId: string | null =
+    user.role === "CLIENT" && user.clientId ? user.clientId : null;
+  return next({
+    ctx: {
+      session: ctx.session,
+      user: user as { id: string; email: string; name: string; role: Role },
+      scopedClientId,
+    },
+  });
+});
+
+export const scopedProcedure = t.procedure.use(enforceScoped);
+
+/** Helper: build a clientId where-clause respecting scope */
+export function clientScopeWhere(
+  scopedClientId: string | null,
+  inputClientId?: string
+) {
+  if (scopedClientId) return { clientId: scopedClientId };
+  return inputClientId ? { clientId: inputClientId } : {};
+}
