@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Plus, Search, Building2, Users, Trash2, ArrowUpRight } from "lucide-react";
+import { Plus, Search, Building2, Users, Trash2, ArrowUpRight, Shield, Key } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -28,13 +29,16 @@ import {
 } from "@/components/ui/select";
 import { PlatformIcon } from "@/components/shared/platform-icon";
 
+type BusinessAccountType = "CLIENT_MANAGED" | "AGENCY_MANAGED";
+
 export default function ClientsPage() {
   const { data: session } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [newClient, setNewClient] = useState({ name: "", company: "", email: "", website: "", industry: "" });
+  const [newClient, setNewClient] = useState({ name: "", company: "", email: "", website: "", industry: "", createUserAccount: false, userEmail: "", userPassword: "" });
+  const [businessAccountType, setBusinessAccountType] = useState<BusinessAccountType>("AGENCY_MANAGED");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const { data, refetch, isLoading } = trpc.client.list.useQuery({
@@ -45,7 +49,8 @@ export default function ClientsPage() {
   const createMutation = trpc.client.create.useMutation({
     onSuccess: () => {
       setCreateDialogOpen(false);
-      setNewClient({ name: "", company: "", email: "", website: "", industry: "" });
+      setNewClient({ name: "", company: "", email: "", website: "", industry: "", createUserAccount: false, userEmail: "", userPassword: "" });
+      setBusinessAccountType("AGENCY_MANAGED");
       refetch();
     },
   });
@@ -77,12 +82,12 @@ export default function ClientsPage() {
               Add Client
             </Button>
           </DialogTrigger>
-          <DialogContent className="rounded-2xl">
+          <DialogContent className="rounded-2xl max-h-[85vh] flex flex-col">
             <DialogHeader>
               <DialogTitle className="font-heading">Add New Client</DialogTitle>
               <DialogDescription>Create a new client account</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
+            <div className="grid gap-4 py-4 overflow-y-auto flex-1 pr-1">
               <div className="grid gap-2">
                 <Label htmlFor="name">Name *</Label>
                 <Input
@@ -134,20 +139,119 @@ export default function ClientsPage() {
                   className="rounded-xl"
                 />
               </div>
+
+              {/* Business Account Type */}
+              <div className="space-y-3 pt-2">
+                <Label className="text-sm font-medium">Business Account Type</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBusinessAccountType("AGENCY_MANAGED")}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      businessAccountType === "AGENCY_MANAGED"
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Shield className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">Agency Managed</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Uses agency API credentials
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBusinessAccountType("CLIENT_MANAGED")}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      businessAccountType === "CLIENT_MANAGED"
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Key className="h-4 w-4" />
+                      <span className="text-sm font-medium">Client Managed</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Client provides own API tokens
+                    </p>
+                  </button>
+                </div>
+                {businessAccountType === "CLIENT_MANAGED" && (
+                  <p className="text-xs text-muted-foreground">
+                    You can configure platform credentials on the client detail page after creation.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <Checkbox
+                  id="createUserAccount"
+                  checked={newClient.createUserAccount}
+                  onCheckedChange={(checked) =>
+                    setNewClient({ ...newClient, createUserAccount: checked === true })
+                  }
+                />
+                <Label htmlFor="createUserAccount" className="text-sm cursor-pointer">
+                  Create login account for this client
+                </Label>
+              </div>
+
+              {newClient.createUserAccount && (
+                <>
+                  <div className="grid gap-2">
+                    <Label htmlFor="userEmail">Login Email *</Label>
+                    <Input
+                      id="userEmail"
+                      type="email"
+                      value={newClient.userEmail}
+                      onChange={(e) => setNewClient({ ...newClient, userEmail: e.target.value })}
+                      placeholder="client@example.com"
+                      className="rounded-xl"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="userPassword">Temporary Password *</Label>
+                    <Input
+                      id="userPassword"
+                      type="password"
+                      value={newClient.userPassword}
+                      onChange={(e) => setNewClient({ ...newClient, userPassword: e.target.value })}
+                      placeholder="Min. 8 characters"
+                      className="rounded-xl"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Client will be required to change this on first login
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
-            <DialogFooter>
+            <DialogFooter className="shrink-0 pt-2 border-t">
               <Button variant="outline" onClick={() => setCreateDialogOpen(false)} className="rounded-xl">
                 Cancel
               </Button>
               <Button
-                onClick={() => createMutation.mutate({
-                  name: newClient.name,
-                  company: newClient.company || undefined,
-                  email: newClient.email || undefined,
-                  website: newClient.website || undefined,
-                  industry: newClient.industry || undefined,
-                })}
-                disabled={!newClient.name || createMutation.isLoading}
+                onClick={() => {
+                  createMutation.mutate({
+                    name: newClient.name,
+                    company: newClient.company || undefined,
+                    email: newClient.email || undefined,
+                    website: newClient.website || undefined,
+                    industry: newClient.industry || undefined,
+                    businessAccountType,
+                    createUserAccount: newClient.createUserAccount || undefined,
+                    userEmail: newClient.createUserAccount ? newClient.userEmail : undefined,
+                    userPassword: newClient.createUserAccount ? newClient.userPassword : undefined,
+                  });
+                }}
+                disabled={
+                  !newClient.name ||
+                  createMutation.isLoading ||
+                  (newClient.createUserAccount && (!newClient.userEmail || newClient.userPassword.length < 8))
+                }
                 className="rounded-xl gradient-blue border-0 hover:opacity-90"
               >
                 {createMutation.isLoading ? "Creating..." : "Create Client"}

@@ -10,6 +10,7 @@ interface PlatformPreviewProps {
   mediaIds: string[];
   mediaMap: Record<string, { url: string; type: string; name: string }>;
   scheduledAt?: string;
+  accountName?: string;
 }
 
 function MediaGrid({ mediaIds, mediaMap }: { mediaIds: string[]; mediaMap: Record<string, { url: string; type: string; name: string }> }) {
@@ -25,7 +26,7 @@ function MediaGrid({ mediaIds, mediaMap }: { mediaIds: string[]; mediaMap: Recor
             key={id}
             className={cn(
               "relative bg-muted/50 flex items-center justify-center overflow-hidden",
-              items.length === 1 ? "h-48" : "h-32",
+              items.length === 1 ? "h-64" : "h-40",
               items.length === 3 && idx === 0 && "row-span-2 h-full"
             )}
           >
@@ -48,15 +49,16 @@ function MediaGrid({ mediaIds, mediaMap }: { mediaIds: string[]; mediaMap: Recor
   );
 }
 
-function FacebookPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps) {
+function FacebookPreview({ content, mediaIds, mediaMap, accountName }: PlatformPreviewProps) {
+  const displayName = accountName || "Your Page";
   return (
     <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
       <div className="p-3 flex items-center gap-2.5">
         <div className="h-9 w-9 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: "#1877F2" }}>
-          P
+          {displayName[0]?.toUpperCase() || "P"}
         </div>
         <div>
-          <p className="text-sm font-semibold">Your Page</p>
+          <p className="text-sm font-semibold">{displayName}</p>
           <p className="text-xs text-muted-foreground">Just now &middot; Public</p>
         </div>
         <MoreHorizontal className="h-4 w-4 text-muted-foreground ml-auto" />
@@ -78,14 +80,16 @@ function FacebookPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps) 
   );
 }
 
-function InstagramPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps) {
+function InstagramPreview({ content, mediaIds, mediaMap, accountName }: PlatformPreviewProps) {
+  const displayName = accountName || "your_page";
+  const handle = displayName.startsWith("@") ? displayName : displayName;
   return (
     <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
       <div className="p-3 flex items-center gap-2.5">
         <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center text-white text-xs font-bold ring-2 ring-white">
-          P
+          {displayName.replace("@", "")[0]?.toUpperCase() || "P"}
         </div>
-        <p className="text-sm font-semibold">your_page</p>
+        <p className="text-sm font-semibold">{handle}</p>
         <MoreHorizontal className="h-4 w-4 text-muted-foreground ml-auto" />
       </div>
       {mediaIds.length > 0 ? (
@@ -93,7 +97,7 @@ function InstagramPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps)
           {(() => {
             const info = mediaMap[mediaIds[0]];
             if (info?.type === "VIDEO") return <Film className="h-12 w-12 text-muted-foreground" />;
-            if (info?.url) return <img src={info.url} alt={info.name} className="h-full w-full object-cover" />;
+            if (info?.url) return <img src={info.url} alt={info.name} className="h-full w-full object-contain bg-black" />;
             return <ImageIcon className="h-12 w-12 text-muted-foreground" />;
           })()}
         </div>
@@ -113,7 +117,7 @@ function InstagramPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps)
         </div>
         {content && (
           <p className="text-sm">
-            <span className="font-semibold mr-1">your_page</span>
+            <span className="font-semibold mr-1">{handle}</span>
             <span className="whitespace-pre-wrap">{content.length > 150 ? content.substring(0, 150) + "..." : content}</span>
           </p>
         )}
@@ -122,15 +126,16 @@ function InstagramPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps)
   );
 }
 
-function LinkedInPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps) {
+function LinkedInPreview({ content, mediaIds, mediaMap, accountName }: PlatformPreviewProps) {
+  const displayName = accountName || "Your Company";
   return (
     <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
       <div className="p-3 flex items-center gap-2.5">
         <div className="h-10 w-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: "#0A66C2" }}>
-          P
+          {displayName[0]?.toUpperCase() || "P"}
         </div>
         <div>
-          <p className="text-sm font-semibold">Your Company</p>
+          <p className="text-sm font-semibold">{displayName}</p>
           <p className="text-xs text-muted-foreground">Just now &middot; 500+ followers</p>
         </div>
       </div>
@@ -154,7 +159,9 @@ function LinkedInPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps) 
   );
 }
 
-function TwitterPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps) {
+function TwitterPreview({ content, mediaIds, mediaMap, accountName }: PlatformPreviewProps) {
+  const displayName = accountName || "Your Page";
+  const handle = accountName ? (accountName.startsWith("@") ? accountName : `@${accountName}`) : "@your_handle";
   const charCount = content.length;
   const isOverLimit = charCount > 280;
 
@@ -162,12 +169,12 @@ function TwitterPreview({ content, mediaIds, mediaMap }: PlatformPreviewProps) {
     <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
       <div className="p-3 flex gap-2.5">
         <div className="h-9 w-9 rounded-full bg-black flex items-center justify-center text-white text-sm font-bold shrink-0">
-          P
+          {displayName.replace("@", "")[0]?.toUpperCase() || "P"}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <p className="text-sm font-semibold">Your Page</p>
-            <p className="text-xs text-muted-foreground">@your_handle &middot; now</p>
+            <p className="text-sm font-semibold">{displayName}</p>
+            <p className="text-xs text-muted-foreground">{handle} &middot; now</p>
           </div>
           {content && <p className="text-sm whitespace-pre-wrap mt-1">{content}</p>}
           <MediaGrid mediaIds={mediaIds} mediaMap={mediaMap} />

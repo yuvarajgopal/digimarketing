@@ -19,15 +19,17 @@ interface AssetPickerProps {
   selectedIds: string[];
   onSelectionChange: (ids: string[]) => void;
   onAssetData?: (id: string, info: AssetInfo) => void;
+  clientId?: string;
 }
 
-export function AssetPicker({ type, selectedIds, onSelectionChange, onAssetData }: AssetPickerProps) {
+export function AssetPicker({ type, selectedIds, onSelectionChange, onAssetData, clientId }: AssetPickerProps) {
   const [search, setSearch] = useState("");
 
   const { data, isLoading } = trpc.asset.list.useQuery({
     ...(type ? { type } : {}),
     search: search || undefined,
     limit: 50,
+    clientId,
   });
 
   const toggleAsset = (asset: { id: string; url: string; type: string; name: string; thumbnailUrl?: string | null }) => {

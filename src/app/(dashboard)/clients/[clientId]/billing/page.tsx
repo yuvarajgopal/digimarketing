@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
-import { Plus, CreditCard, RefreshCw, XCircle, Check, Loader2, CalendarClock } from "lucide-react";
+import { useParams } from "next/navigation";
+import { Plus, CreditCard, RefreshCw, Loader2, CalendarClock, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -20,8 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BillingType, BillingStatus } from "@prisma/client";
-import { formatCurrency } from "@/lib/utils";
-import { PayNowButton } from "@/components/shared/pay-now-button";
+import { formatCurrency, clientCurrency } from "@/lib/utils";
 
 const SUB_STATUS_VARIANT: Record<string, "default" | "secondary" | "success" | "warning" | "destructive"> = {
   ACTIVE: "success",
@@ -33,20 +32,22 @@ const SUB_STATUS_VARIANT: Record<string, "default" | "secondary" | "success" | "
 
 export default function ClientBillingPage() {
   const params = useParams();
-  const searchParams = useSearchParams();
   const clientId = params.clientId as string;
-  const paymentStatus = searchParams.get("payment");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
-  const [newRecord, setNewRecord] = useState({ type: "", amount: "", currency: "USD", description: "", period: "", dueDate: "" });
-  const [newSub, setNewSub] = useState({ name: "", amount: "", currency: "USD", interval: "monthly" });
+  const [newRecord, setNewRecord] = useState({ type: "", amount: "", currency: "", description: "", period: "", dueDate: "" });
+  const [newSub, setNewSub] = useState({ name: "", amount: "", currency: "", interval: "monthly" });
+
+  const { data: clientData } = trpc.client.byId.useQuery({ id: clientId });
+  const currency = clientCurrency(clientData);
 
   const { data, refetch, isLoading } = trpc.billing.list.useQuery({ clientId });
   const createMutation = trpc.billing.create.useMutation({
-    onSuccess: () => { setCreateOpen(false); refetch(); setNewRecord({ type: "", amount: "", currency: "USD", description: "", period: "", dueDate: "" }); },
+    onSuccess: () => { setCreateOpen(false); refetch(); setNewRecord({ type: "", amount: "", currency: "", description: "", period: "", dueDate: "" }); },
   });
   const updateStatusMutation = trpc.billing.updateStatus.useMutation({ onSuccess: () => refetch() });
+  const deleteMutation = trpc.billing.delete.useMutation({ onSuccess: () => refetch() });
 
   const { data: clientSubs, refetch: refetchSubs } = trpc.payment.listClientSubscriptions.useQuery({ clientId });
   const createClientSub = trpc.payment.createClientSubscription.useMutation({
@@ -74,20 +75,6 @@ export default function ClientBillingPage() {
 
   return (
     <div className="space-y-6">
-      {/* Payment feedback banner */}
-      {paymentStatus === "success" && (
-        <div className="p-4 rounded-lg border border-green-500/50 bg-green-500/10 flex items-center gap-3">
-          <Check className="h-5 w-5 text-green-500" />
-          <p className="text-sm font-medium text-green-700 dark:text-green-400">Payment successful! The record will update automatically.</p>
-        </div>
-      )}
-      {paymentStatus === "cancelled" && (
-        <div className="p-4 rounded-lg border border-orange-500/50 bg-orange-500/10 flex items-center gap-3">
-          <XCircle className="h-5 w-5 text-orange-500" />
-          <p className="text-sm font-medium text-orange-700 dark:text-orange-400">Payment was cancelled. You can try again anytime.</p>
-        </div>
-      )}
-
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Billing</h1>
@@ -116,13 +103,17 @@ export default function ClientBillingPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label>Currency</Label>
-                    <Select value={newSub.currency} onValueChange={(v) => setNewSub({ ...newSub, currency: v })}>
+                    <Select value={newSub.currency || currency} onValueChange={(v) => setNewSub({ ...newSub, currency: v })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="INR">INR</SelectItem>
-                        <SelectItem value="EUR">EUR</SelectItem>
-                        <SelectItem value="GBP">GBP</SelectItem>
+                        <SelectItem value="USD">USD – US Dollar</SelectItem>
+                        <SelectItem value="INR">INR – Indian Rupee</SelectItem>
+                        <SelectItem value="EUR">EUR – Euro</SelectItem>
+                        <SelectItem value="GBP">GBP – British Pound</SelectItem>
+                        <SelectItem value="CAD">CAD – Canadian Dollar</SelectItem>
+                        <SelectItem value="AUD">AUD – Australian Dollar</SelectItem>
+                        <SelectItem value="AED">AED – UAE Dirham</SelectItem>
+                        <SelectItem value="SGD">SGD – Singapore Dollar</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -187,13 +178,17 @@ export default function ClientBillingPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label>Currency</Label>
-                    <Select value={newRecord.currency} onValueChange={(v) => setNewRecord({ ...newRecord, currency: v })}>
+                    <Select value={newRecord.currency || currency} onValueChange={(v) => setNewRecord({ ...newRecord, currency: v })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="INR">INR</SelectItem>
-                        <SelectItem value="EUR">EUR</SelectItem>
-                        <SelectItem value="GBP">GBP</SelectItem>
+                        <SelectItem value="USD">USD – US Dollar</SelectItem>
+                        <SelectItem value="INR">INR – Indian Rupee</SelectItem>
+                        <SelectItem value="EUR">EUR – Euro</SelectItem>
+                        <SelectItem value="GBP">GBP – British Pound</SelectItem>
+                        <SelectItem value="CAD">CAD – Canadian Dollar</SelectItem>
+                        <SelectItem value="AUD">AUD – Australian Dollar</SelectItem>
+                        <SelectItem value="AED">AED – UAE Dirham</SelectItem>
+                        <SelectItem value="SGD">SGD – Singapore Dollar</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -331,7 +326,6 @@ export default function ClientBillingPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <PayNowButton billingRecordId={record.id} status={record.status} onSuccess={() => refetch()} />
                   <Select
                     value={record.status}
                     onValueChange={(v) => updateStatusMutation.mutate({ id: record.id, status: v as BillingStatus })}
@@ -345,6 +339,30 @@ export default function ClientBillingPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Invoice?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently delete this {formatCurrency(Number(record.amount), record.currency)} invoice. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          onClick={() => deleteMutation.mutate({ id: record.id })}
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </CardContent>
             </Card>

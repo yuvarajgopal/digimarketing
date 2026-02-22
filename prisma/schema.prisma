@@ -49,15 +49,17 @@ model VerificationToken {
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
+  username     String?   @unique
   name         String
   passwordHash String
   role         Role         @default(MANAGER)
   authProvider AuthProvider @default(LOCAL)
   cognitoSub   String?      @unique
   avatar       String?
-  clientId     String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  clientId           String?
+  mustChangePassword Boolean      @default(false)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   client        Client?  @relation(fields: [clientId], references: [id])
   posts         Post[]
@@ -91,12 +93,17 @@ model Client {
   industry  String?
   logo      String?
   notes     String?
+  city      String?
+  state     String?
+  country   String?      // ISO 3166-1 alpha-2 code e.g. "US", "IN", "GB"
   aiProfile Json?        // { brandVoice, guidelines, targetAudience, competitors, forbiddenWords, samplePosts }
+  businessAccountType BusinessAccountType @default(AGENCY_MANAGED)
   status    ClientStatus @default(ACTIVE)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
   platformConnections  PlatformConnection[]
+  platformCredentials  ClientPlatformCredential[]
   posts                Post[]
   campaigns            Campaign[]
   analyticsSnapshots   AnalyticsSnapshot[]
@@ -106,8 +113,13 @@ model Client {
   reports              Report[]
   tags                 ClientTag[]
   users                User[]
+  assets               Asset[]
+  templates            Template[]
   webTrafficSnapshots  WebTrafficSnapshot[]
   audienceSnapshots    AudienceSnapshot[]
+  customAudiences      CustomAudience[]
+  metaPixels           MetaPixel[]
+  platformConfig       ClientPlatformConfig?
 }
 
 enum ClientStatus {
@@ -116,11 +128,17 @@ enum ClientStatus {
   CHURNED
 }
 
+enum BusinessAccountType {
+  CLIENT_MANAGED
+  AGENCY_MANAGED
+}
+
 model AgencyConnection {
   id              String           @id @default(cuid())
   platform        Platform
   accessToken     String           // Encrypted - agency's API token
   refreshToken    String?          // Encrypted
+  clientSecret    String?          // Encrypted - OAuth client secret (for token refresh)
   tokenExpiresAt  DateTime?
   accountName     String?          // e.g. "Our Facebook Business"
   appId           String?          // Platform app/client ID
@@ -143,17 +161,43 @@ model PlatformConnection {
   tokenExpiresAt     DateTime?
   accountId          String?
   accountName        String?
+  adAccountId        String?          // Meta Ad Account ID (act_xxx) — overrides META_AD_ACCOUNT_ID env var
   scopes             String[]
   status             ConnectionStatus @default(ACTIVE)
   lastHealthCheck    DateTime?
   agencyConnectionId String?
+  clientCredentialId String?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
-  client           Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  agencyConnection AgencyConnection? @relation(fields: [agencyConnectionId], references: [id])
+  client           Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agencyConnection AgencyConnection?         @relation(fields: [agencyConnectionId], references: [id])
+  clientCredential ClientPlatformCredential? @relation(fields: [clientCredentialId], references: [id])
 
   @@unique([clientId, platform, accountId])
+  @@index([clientId])
+}
+
+model ClientPlatformCredential {
+  id              String           @id @default(cuid())
+  clientId        String
+  platform        Platform
+  useAgency       Boolean          @default(false)  // true = use agency credentials
+  accessToken     String?          // Encrypted — null when useAgency
+  refreshToken    String?          // Encrypted
+  tokenExpiresAt  DateTime?
+  accountName     String?          // e.g. "Client's Facebook Business"
+  appId           String?          // Platform app/client ID
+  adAccountId     String?          // Meta Ad Account ID (act_xxx) — per-client override
+  status          ConnectionStatus @default(ACTIVE)
+  lastHealthCheck DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  client            Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientConnections PlatformConnection[]
+
+  @@unique([clientId, platform])
   @@index([clientId])
 }
 
@@ -180,8 +224,9 @@ model Post {
   clientId    String
   createdById String
   content     String
-  platforms   Platform[]
-  status      PostStatus @default(DRAFT)
+  platforms     Platform[]
+  connectionIds String[]
+  status        PostStatus @default(DRAFT)
   scheduledAt DateTime?
   publishedAt DateTime?
   templateId  String?
@@ -237,12 +282,16 @@ model Asset {
   height       Int?
   duration     Int?
   folder       String?
+  clientId     String?
   metadata     Json?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  client    Client?     @relation(fields: [clientId], references: [id])
   postMedia PostMedia[]
   tags      AssetTag[]
+
+  @@index([clientId])
 }
 
 enum AssetType {
@@ -260,12 +309,16 @@ model Template {
   content     String
   platforms   Platform[]
   thumbnail   String?
+  clientId    String?
   metadata    Json?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  posts Post[]
-  tags  TemplateTag[]
+  client Client?       @relation(fields: [clientId], references: [id])
+  posts  Post[]
+  tags   TemplateTag[]
+
+  @@index([clientId])
 }
 
 enum TemplateType {
@@ -632,6 +685,57 @@ model AudienceSnapshot {
   @@index([platform])
 }
 
+// ─── Audience & Pixel Models ─────────────────────────────────────
+
+enum AudienceType {
+  CUSTOMER_LIST
+  WEBSITE
+  LOOKALIKE
+}
+
+enum AudienceStatus {
+  PENDING
+  READY
+  TOO_SMALL
+  ERROR
+}
+
+model CustomAudience {
+  id                 String         @id @default(cuid())
+  clientId           String
+  name               String
+  type               AudienceType
+  platformAudienceId String?
+  sourceAudienceId   String?        // For lookalikes — references another CustomAudience.id
+  status             AudienceStatus @default(PENDING)
+  size               Int?
+  metadata           Json?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  client          Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sourceAudience  CustomAudience? @relation("LookalikeSource", fields: [sourceAudienceId], references: [id])
+  lookalikes      CustomAudience[] @relation("LookalikeSource")
+
+  @@index([clientId])
+}
+
+model MetaPixel {
+  id              String   @id @default(cuid())
+  clientId        String
+  platformPixelId String
+  name            String
+  status          String   @default("ACTIVE")
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, platformPixelId])
+  @@index([clientId])
+}
+
 // ─── Tag Junction Tables ──────────────────────────────────────────
 
 model ClientTag {
@@ -664,4 +768,44 @@ model TemplateTag {
   template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@id([templateId, tag])
+}
+
+/// Per-client ad platform configuration
+model ClientPlatformConfig {
+  id               String   @id @default(cuid())
+  clientId         String   @unique
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  /// Which platforms are enabled for this client (Platform enum values)
+  enabledPlatforms String[]
+
+  // ─── Meta ───────────────────────────────────────────────────
+  metaAdAccountId  String?  /// Override ad account ID, e.g. "act_123456789"
+  metaPageId       String?  /// Facebook Page ID
+
+  // ─── Google Ads ─────────────────────────────────────────────
+  googleCustomerId  String?  /// Customer ID without dashes, e.g. "1234567890"
+  googleManagerId   String?  /// MCC/Manager account ID (optional)
+  googleBidStrategy String?  @default("MAXIMIZE_CLICKS")
+  googleTargetCpa   Decimal?
+  googleTargetRoas  Decimal?
+
+  // ─── LinkedIn ────────────────────────────────────────────────
+  linkedinAdAccountId    String?  /// Campaign Manager Account ID (from URL: /campaignmanager/accounts/{id}/)
+  linkedinOrganizationId String?  /// Company Page Organization ID (numeric, used in URN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Singleton agency profile — first (and only) row is the agency's settings
+model AgencyProfile {
+  id           String   @id @default(cuid())
+  name         String   @default("DigiCampaign Agency")
+  website      String?
+  supportEmail String?
+  country      String?  /// ISO 3166-1 alpha-2, e.g. "IN", "US"
+  logoUrl      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

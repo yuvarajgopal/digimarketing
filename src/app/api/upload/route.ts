@@ -23,19 +23,30 @@ export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const files = formData.getAll("files") as File[];
   const folder = (formData.get("folder") as string) || "uploads";
+  const clientId = (formData.get("clientId") as string) || undefined;
 
   if (files.length === 0) {
     return NextResponse.json({ error: "No files provided" }, { status: 400 });
+  }
+
+  // If clientId provided, fetch client name for filename prefix
+  let clientPrefix = "";
+  if (clientId) {
+    const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true } });
+    if (client) {
+      clientPrefix = client.name.replace(/[^a-zA-Z0-9]/g, "_") + "_";
+    }
   }
 
   const assets = [];
 
   for (const file of files) {
     const buffer = Buffer.from(await file.arrayBuffer());
+    const fileName = clientPrefix ? `${clientPrefix}${file.name}` : file.name;
     const stored = await storeFile(
       {
         buffer,
-        originalName: file.name,
+        originalName: fileName,
         mimeType: file.type,
         size: file.size,
       },
@@ -44,12 +55,13 @@ export async function POST(req: NextRequest) {
 
     const asset = await db.asset.create({
       data: {
-        name: file.name,
+        name: fileName,
         type: getAssetType(file.type),
         mimeType: file.type,
         size: file.size,
         url: stored.url,
         folder,
+        clientId,
       },
     });
 

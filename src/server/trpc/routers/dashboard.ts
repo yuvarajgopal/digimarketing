@@ -20,8 +20,8 @@ export const dashboardRouter = router({
         scheduledPosts,
         totalLeads,
         totalCampaigns,
+        pendingApproval,
         recentPosts,
-        billingRecords,
       ] = await Promise.all([
         ctx.db.client.count({ where: clientWhere }),
         ctx.db.client.count({ where: { ...clientWhere, status: "ACTIVE" } }),
@@ -29,6 +29,7 @@ export const dashboardRouter = router({
         ctx.db.post.count({ where: { ...relWhere, status: "SCHEDULED" } }),
         ctx.db.lead.count({ where: relWhere }),
         ctx.db.campaign.count({ where: { ...relWhere, status: "ACTIVE" } }),
+        ctx.db.post.count({ where: { ...relWhere, status: "PENDING_APPROVAL" } }),
         ctx.db.post.findMany({
           where: relWhere,
           take: 5,
@@ -38,16 +39,7 @@ export const dashboardRouter = router({
             createdBy: { select: { name: true } },
           },
         }),
-        ctx.db.billingRecord.findMany({
-          where: { ...relWhere, status: "PAID" },
-          select: { amount: true },
-        }),
       ]);
-
-      const totalRevenue = billingRecords.reduce(
-        (sum, r) => sum + Number(r.amount),
-        0
-      );
 
       return {
         clientCount,
@@ -56,8 +48,8 @@ export const dashboardRouter = router({
         scheduledPosts,
         totalLeads,
         totalCampaigns,
+        pendingApproval,
         recentPosts,
-        totalRevenue,
       };
     }),
 });

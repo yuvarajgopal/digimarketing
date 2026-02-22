@@ -69,7 +69,7 @@ export function PayNowButton({
           key: result.keyId,
           amount: result.amount,
           currency: result.currency,
-          name: "DigiMarketing",
+          name: "DigiCampaign",
           description: result.description,
           order_id: result.orderId,
           prefill: {

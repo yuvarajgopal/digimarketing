@@ -21,7 +21,7 @@ async function processPostPublish(job: Job) {
       client: {
         include: {
           platformConnections: {
-            include: { agencyConnection: true },
+            include: { agencyConnection: true, clientCredential: true },
           },
         },
       },
@@ -35,38 +35,70 @@ async function processPostPublish(job: Job) {
 
   const results: Record<string, unknown> = {};
 
-  for (const platform of post.platforms) {
-    const connection = post.client.platformConnections.find((c) => c.platform === platform);
-    if (!connection) {
-      results[platform] = { success: false, error: "No connection" };
-      continue;
-    }
+  // Determine which connections to publish to
+  let connectionsToPublish: typeof post.client.platformConnections;
 
-    const adapter = adapters[platform];
+  if (post.connectionIds.length > 0) {
+    // New path: use specific connectionIds
+    const connectionIdSet = new Set(post.connectionIds);
+    connectionsToPublish = post.client.platformConnections.filter((c) => connectionIdSet.has(c.id));
+  } else {
+    // Legacy path: find first connection per platform
+    connectionsToPublish = [];
+    for (const platform of post.platforms) {
+      const connection = post.client.platformConnections.find((c) => c.platform === platform);
+      if (connection) {
+        connectionsToPublish.push(connection);
+      } else {
+        results[platform] = { success: false, error: "No connection" };
+      }
+    }
+  }
+
+  for (const connection of connectionsToPublish) {
+    // Use platform_accountName as key to avoid overwrites when multiple accounts share same platform
+    const resultKey = connection.accountName
+      ? `${connection.platform}_${connection.accountName}`
+      : connection.platform;
+
+    const adapter = adapters[connection.platform];
     if (!adapter) {
-      results[platform] = { success: false, error: "Adapter not implemented" };
+      results[resultKey] = { success: false, error: "Adapter not implemented" };
       continue;
     }
 
     try {
-      // Resolve credentials: agency connection takes priority when linked
+      // Resolve credentials: agency → client credential → self-managed
       let accessToken: string;
       let refreshToken: string | undefined;
 
       if (connection.agencyConnectionId && connection.agencyConnection) {
-        // Use agency's API credentials
-        accessToken = decrypt(connection.agencyConnection.accessToken);
+        // Instagram Content Publishing API requires a User Access Token with
+        // instagram_content_publish — Page tokens don't carry Instagram permissions.
+        // Facebook publishing uses the derived Page token stored on the connection.
+        const usePageToken = connection.platform !== "INSTAGRAM" && connection.accessToken;
+        if (usePageToken) {
+          accessToken = decrypt(connection.accessToken!);
+        } else {
+          accessToken = decrypt(connection.agencyConnection.accessToken);
+        }
         refreshToken = connection.agencyConnection.refreshToken
           ? decrypt(connection.agencyConnection.refreshToken)
           : undefined;
+      } else if (connection.clientCredentialId && connection.clientCredential && connection.clientCredential.accessToken) {
+        // Use client's platform credential (business-level token)
+        accessToken = decrypt(connection.clientCredential.accessToken);
+        refreshToken = connection.clientCredential.refreshToken
+          ? decrypt(connection.clientCredential.refreshToken)
+          : undefined;
       } else if (connection.accessToken) {
-        // Use client's own credentials
+        // Use connection's own credentials (self-managed)
         accessToken = decrypt(connection.accessToken);
         refreshToken = connection.refreshToken
           ? decrypt(connection.refreshToken)
           : undefined;
       } else {
-        results[platform] = { success: false, error: "No credentials available" };
+        results[resultKey] = { success: false, error: "No credentials available" };
         continue;
       }
 
@@ -78,9 +110,9 @@ async function processPostPublish(job: Job) {
 
       const mediaUrls = post.media.map((m) => m.asset.url);
       const result = await adapter.publishPost(credentials, post.content, mediaUrls);
-      results[platform] = result;
+      results[resultKey] = result;
     } catch (error) {
-      results[platform] = { success: false, error: String(error) };
+      results[resultKey] = { success: false, error: String(error) };
     }
   }
 

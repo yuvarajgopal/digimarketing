@@ -9,15 +9,17 @@ export const templateRouter = router({
         type: z.nativeEnum(TemplateType).optional(),
         platform: z.nativeEnum(Platform).optional(),
         search: z.string().optional(),
+        clientId: z.string().optional(),
         limit: z.number().min(1).max(100).default(50),
         cursor: z.string().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      const { type, platform, search, limit = 50, cursor } = input || {};
+      const { type, platform, search, clientId, limit = 50, cursor } = input || {};
       const where: any = {};
       if (type) where.type = type;
       if (platform) where.platforms = { has: platform };
+      if (clientId) where.clientId = clientId;
       if (search) {
         where.OR = [
           { name: { contains: search, mode: "insensitive" } },
@@ -59,15 +61,17 @@ export const templateRouter = router({
         type: z.nativeEnum(TemplateType),
         content: z.string(),
         platforms: z.array(z.nativeEnum(Platform)).optional(),
+        clientId: z.string().optional(),
         tags: z.array(z.string()).optional(),
         metadata: z.record(z.string(), z.unknown()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { tags, metadata, ...data } = input;
+      const { tags, metadata, clientId, ...data } = input;
       return ctx.db.template.create({
         data: {
           ...data,
+          clientId,
           metadata: metadata as any,
           tags: tags ? { create: tags.map((tag) => ({ tag })) } : undefined,
         },

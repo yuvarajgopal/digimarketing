@@ -16,8 +16,44 @@ import {
   checkBrandConsistency,
   type ClientContext,
 } from "@/server/services/ai";
-import { generateImage, generateVideo, generateAdVariations, editImage } from "@/server/services/media-generation";
+import { generateImage, generateVideo, generateAdVariations, editImage, uploadToFalStorage } from "@/server/services/media-generation";
+import { storeFile } from "@/server/services/storage";
 import { db as prisma } from "@/server/db";
+
+async function downloadAndStoreAsset(
+  imageUrl: string,
+  name: string,
+  clientId?: string,
+): Promise<{ id: string; url: string; name: string; type: string }> {
+  // Download the image from Fal.ai
+  const response = await fetch(imageUrl);
+  if (!response.ok) throw new Error("Failed to download generated image");
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const contentType = response.headers.get("content-type") || "image/png";
+  const ext = contentType.includes("jpeg") ? ".jpg" : contentType.includes("webp") ? ".webp" : ".png";
+  const fileName = `${name.replace(/[^a-zA-Z0-9_-]/g, "_")}${ext}`;
+
+  // Store to S3/local
+  const stored = await storeFile(
+    { buffer, originalName: fileName, mimeType: contentType, size: buffer.length },
+    "assets",
+  );
+
+  // Create Asset record
+  const asset = await prisma.asset.create({
+    data: {
+      name: `${name}${ext}`,
+      type: "IMAGE",
+      mimeType: contentType,
+      size: buffer.length,
+      url: stored.url,
+      folder: "assets",
+      clientId: clientId || undefined,
+    },
+  });
+
+  return { id: asset.id, url: asset.url, name: asset.name, type: "IMAGE" };
+}
 
 // Helper: build ClientContext from DB
 async function getClientContext(clientId: string): Promise<ClientContext | undefined> {
@@ -97,11 +133,36 @@ export const aiRouter = router({
       z.object({
         prompt: z.string().min(1),
         aspectRatio: z.enum(["1:1", "16:9", "9:16", "4:5"]).default("1:1"),
+        clientId: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
       const result = await generateImage(input.prompt, input.aspectRatio);
-      return result;
+      const isNano = process.env.NANO_ENABLED === "true" && process.env.GEMINI_API_KEY;
+
+      if (isNano) {
+        // Nano already stored the image via storeFile, just create asset record
+        const asset = await prisma.asset.create({
+          data: {
+            name: `AI_Generated_${Date.now()}.png`,
+            type: "IMAGE",
+            mimeType: "image/png",
+            size: 0,
+            url: result.url,
+            folder: "assets",
+            clientId: input.clientId || undefined,
+          },
+        });
+        return { ...result, id: asset.id, name: asset.name, type: "IMAGE" };
+      }
+
+      // Fal returns external URL - download and store
+      const asset = await downloadAndStoreAsset(
+        result.url,
+        `AI_Generated_${Date.now()}`,
+        input.clientId,
+      );
+      return { ...result, ...asset };
     }),
 
   generateVideo: protectedProcedure
@@ -123,11 +184,54 @@ export const aiRouter = router({
         imageUrl: z.string().min(1),
         prompt: z.string().min(1),
         strength: z.number().min(0.1).max(1.0).default(0.75),
+        clientId: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
-      const result = await editImage(input.imageUrl, input.prompt, input.strength);
-      return result;
+      // Resolve source URL
+      let sourceUrl = input.imageUrl;
+      if (sourceUrl.startsWith("/")) {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+        sourceUrl = `${appUrl}${sourceUrl}`;
+      }
+
+      const isFal = process.env.FAL_ENABLED === "true" && !(process.env.NANO_ENABLED === "true" && process.env.GEMINI_API_KEY);
+
+      let editUrl = sourceUrl;
+      if (isFal) {
+        // Upload to Fal CDN so Fal servers can access it
+        const imgResponse = await fetch(sourceUrl);
+        if (!imgResponse.ok) throw new Error("Failed to fetch source image for editing");
+        const imgBuffer = Buffer.from(await imgResponse.arrayBuffer());
+        const imgContentType = imgResponse.headers.get("content-type") || "image/png";
+        editUrl = await uploadToFalStorage(imgBuffer, imgContentType);
+      }
+
+      const result = await editImage(editUrl, input.prompt, input.strength);
+
+      // Nano already stores the image, Fal returns a URL we need to download
+      if (isFal) {
+        const asset = await downloadAndStoreAsset(
+          result.url,
+          `AI_Edited_${Date.now()}`,
+          input.clientId,
+        );
+        return { ...result, ...asset };
+      }
+
+      // Nano: image already stored, create asset record
+      const asset = await prisma.asset.create({
+        data: {
+          name: `AI_Edited_${Date.now()}.png`,
+          type: "IMAGE",
+          mimeType: "image/png",
+          size: 0,
+          url: result.url,
+          folder: "assets",
+          clientId: input.clientId || undefined,
+        },
+      });
+      return { ...result, id: asset.id, name: asset.name, type: "IMAGE" };
     }),
 
   generateAdVariations: protectedProcedure

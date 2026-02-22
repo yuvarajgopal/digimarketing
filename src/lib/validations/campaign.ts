@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Platform, CampaignStatus, BudgetType } from "@prisma/client";
 
 export const createCampaignSchema = z.object({
-  clientId: z.string().cuid(),
+  clientId: z.string().min(1),
   name: z.string().min(1, "Name is required").max(255),
   platform: z.nativeEnum(Platform),
   objective: z.string().optional(),

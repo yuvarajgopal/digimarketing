@@ -13,7 +13,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <div className="min-h-screen bg-background">
       <Topbar />
-      <main className="mx-auto max-w-[1400px] px-6 pt-12 pb-8">{children}</main>
+      <main className="relative z-10 mx-auto max-w-[1400px] px-6 pt-8 pb-10">
+        {children}
+      </main>
     </div>
   );
 }

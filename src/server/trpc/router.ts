@@ -14,8 +14,14 @@ import { aiRouter } from "./routers/ai";
 import { dashboardRouter } from "./routers/dashboard";
 import { paymentRouter } from "./routers/payment";
 import { clientAnalyticsRouter } from "./routers/clientAnalytics";
+import { userRouter } from "./routers/user";
+import { boostRouter } from "./routers/boost";
+import { agencyRouter } from "./routers/agency";
+import { clientPlatformConfigRouter } from "./routers/clientPlatformConfig";
 
 export const appRouter = router({
+  agency: agencyRouter,
+  clientPlatformConfig: clientPlatformConfigRouter,
   client: clientRouter,
   post: postRouter,
   campaign: campaignRouter,
@@ -31,6 +37,8 @@ export const appRouter = router({
   dashboard: dashboardRouter,
   payment: paymentRouter,
   clientAnalytics: clientAnalyticsRouter,
+  user: userRouter,
+  boost: boostRouter,
 });
 
 export type AppRouter = typeof appRouter;

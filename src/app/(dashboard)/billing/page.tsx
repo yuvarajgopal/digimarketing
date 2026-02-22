@@ -1,21 +1,29 @@
 "use client";
 
-import { DollarSign, Clock, AlertTriangle } from "lucide-react";
+import { IndianRupee, DollarSign, Clock, AlertTriangle, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useSession } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { MetricCard } from "@/components/charts/metric-card";
-import { formatCurrency } from "@/lib/utils";
-import { PayNowButton } from "@/components/shared/pay-now-button";
+import { formatCurrency, AGENCY_CURRENCY, getCurrencyForCountry } from "@/lib/utils";
 
 export default function BillingPage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role as string | undefined;
   const isClient = role === "CLIENT";
 
+  const { data: agencyProfile } = trpc.agency.get.useQuery();
+  const agencyCurrency = getCurrencyForCountry(agencyProfile?.country) ?? AGENCY_CURRENCY;
+
   const { data: summary } = trpc.billing.summary.useQuery();
   const { data, isLoading, refetch } = trpc.billing.list.useQuery({ limit: 50 });
+  const deleteMutation = trpc.billing.delete.useMutation({ onSuccess: () => refetch() });
 
   const statusColors: Record<string, "default" | "secondary" | "success" | "warning" | "destructive"> = {
     PENDING: "secondary",
@@ -37,17 +45,20 @@ export default function BillingPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard
           title="Total Revenue"
-          value={formatCurrency(summary?.totalRevenue || 0)}
-          icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
+          value={formatCurrency(summary?.totalRevenue || 0, agencyCurrency)}
+          icon={agencyCurrency === "INR"
+            ? <IndianRupee className="h-4 w-4 text-muted-foreground" />
+            : <DollarSign className="h-4 w-4 text-muted-foreground" />
+          }
         />
         <MetricCard
           title="Pending"
-          value={formatCurrency(summary?.totalPending || 0)}
+          value={formatCurrency(summary?.totalPending || 0, agencyCurrency)}
           icon={<Clock className="h-4 w-4 text-muted-foreground" />}
         />
         <MetricCard
           title="Overdue"
-          value={formatCurrency(summary?.totalOverdue || 0)}
+          value={formatCurrency(summary?.totalOverdue || 0, agencyCurrency)}
           icon={<AlertTriangle className="h-4 w-4 text-muted-foreground" />}
         />
       </div>
@@ -75,7 +86,32 @@ export default function BillingPage() {
                   <div className="flex items-center gap-3">
                     <span className="font-semibold">{formatCurrency(Number(record.amount), record.currency)}</span>
                     <Badge variant={statusColors[record.status]}>{record.status}</Badge>
-                    <PayNowButton billingRecordId={record.id} status={record.status} onSuccess={() => refetch()} />
+                    {!isClient && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Invoice?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will permanently delete this {formatCurrency(Number(record.amount), record.currency)} invoice for {record.client.name}. This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={() => deleteMutation.mutate({ id: record.id })}
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
                 </div>
               ))

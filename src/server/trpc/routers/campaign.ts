@@ -27,7 +27,7 @@ export const campaignRouter = router({
         take: limit + 1,
         cursor: cursor ? { id: cursor } : undefined,
         orderBy: { createdAt: "desc" },
-        include: { client: { select: { id: true, name: true } } },
+        include: { client: { select: { id: true, name: true, country: true } } },
       });
 
       let nextCursor: string | undefined;

@@ -18,11 +18,13 @@ export interface UploadResult {
 export async function uploadFiles(
   files: File[],
   folder?: string,
-  onProgress?: (progress: UploadProgress) => void
+  onProgress?: (progress: UploadProgress) => void,
+  clientId?: string
 ): Promise<UploadResult> {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
   if (folder) formData.append("folder", folder);
+  if (clientId) formData.append("clientId", clientId);
 
   onProgress?.({ loaded: 0, total: 1, percent: 10 });
 

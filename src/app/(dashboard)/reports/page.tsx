@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FileText, Send, Download, BarChart3, Sparkles, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, FileText, Send, Download, BarChart3, Sparkles, Loader2, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { useSession } from "next-auth/react";
@@ -40,6 +40,9 @@ export default function ReportsPage() {
 
   const createMutation = trpc.report.create.useMutation({
     onSuccess: () => { setCreateOpen(false); refetch(); },
+  });
+  const deleteMutation = trpc.report.delete.useMutation({
+    onSuccess: () => refetch(),
   });
 
   return (
@@ -135,7 +138,7 @@ export default function ReportsPage() {
           </Card>
         ) : (
           data?.reports.map((report) => (
-            <ReportCard key={report.id} report={report} onUpdate={refetch} isClient={isClient} />
+            <ReportCard key={report.id} report={report} onUpdate={refetch} isClient={isClient} onDelete={(id) => deleteMutation.mutate({ id })} isDeleting={deleteMutation.isLoading} />
           ))
         )}
       </div>
@@ -143,7 +146,7 @@ export default function ReportsPage() {
   );
 }
 
-function ReportCard({ report, onUpdate, isClient }: { report: any; onUpdate: () => void; isClient: boolean }) {
+function ReportCard({ report, onUpdate, isClient, onDelete, isDeleting }: { report: any; onUpdate: () => void; isClient: boolean; onDelete: (id: string) => void; isDeleting: boolean }) {
   const [showNarrative, setShowNarrative] = useState(false);
   const narrativeMutation = trpc.ai.generateNarrative.useMutation({
     onSuccess: () => onUpdate(),
@@ -189,6 +192,11 @@ function ReportCard({ report, onUpdate, isClient }: { report: any; onUpdate: () 
             <Button variant="outline" size="sm"><Download className="h-3 w-3 mr-1" />PDF</Button>
             {!isClient && (
               <Button variant="outline" size="sm"><Send className="h-3 w-3 mr-1" />Send</Button>
+            )}
+            {!isClient && (
+              <Button variant="outline" size="sm" onClick={() => onDelete(report.id)} disabled={isDeleting} className="text-destructive hover:text-destructive">
+                <Trash2 className="h-3 w-3" />
+              </Button>
             )}
           </div>
         </div>

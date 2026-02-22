@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { router, agencyProcedure } from "../trpc";
 import { AssetType } from "@prisma/client";
+import { deleteFile } from "../../services/storage";
 
 export const assetRouter = router({
   list: agencyProcedure
@@ -10,17 +11,19 @@ export const assetRouter = router({
         folder: z.string().optional(),
         search: z.string().optional(),
         tag: z.string().optional(),
+        clientId: z.string().optional(),
         limit: z.number().min(1).max(100).default(50),
         cursor: z.string().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      const { type, folder, search, tag, limit = 50, cursor } = input || {};
+      const { type, folder, search, tag, clientId, limit = 50, cursor } = input || {};
       const where: any = {};
       if (type) where.type = type;
       if (folder) where.folder = folder;
       if (search) where.name = { contains: search, mode: "insensitive" };
       if (tag) where.tags = { some: { tag } };
+      if (clientId) where.clientId = clientId;
 
       const assets = await ctx.db.asset.findMany({
         where,
@@ -61,6 +64,7 @@ export const assetRouter = router({
         height: z.number().optional(),
         duration: z.number().optional(),
         folder: z.string().optional(),
+        clientId: z.string().optional(),
         tags: z.array(z.string()).optional(),
       })
     )
@@ -95,16 +99,27 @@ export const assetRouter = router({
   delete: agencyProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
+      const asset = await ctx.db.asset.findUnique({
+        where: { id: input.id },
+        select: { url: true },
+      });
       await ctx.db.asset.delete({ where: { id: input.id } });
+      if (asset?.url) {
+        await deleteFile(asset.url);
+      }
       return { success: true };
     }),
 
-  folders: agencyProcedure.query(async ({ ctx }) => {
-    const result = await ctx.db.asset.findMany({
-      where: { folder: { not: null } },
-      select: { folder: true },
-      distinct: ["folder"],
-    });
-    return result.map((r) => r.folder).filter(Boolean) as string[];
-  }),
+  folders: agencyProcedure
+    .input(z.object({ clientId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const where: any = { folder: { not: null } };
+      if (input?.clientId) where.clientId = input.clientId;
+      const result = await ctx.db.asset.findMany({
+        where,
+        select: { folder: true },
+        distinct: ["folder"],
+      });
+      return result.map((r) => r.folder).filter(Boolean) as string[];
+    }),
 });

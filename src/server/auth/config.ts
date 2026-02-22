@@ -30,9 +30,13 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await db.user.findUnique({
-          where: { email: credentials.email },
-        });
+        const login = credentials.email.trim();
+
+        // Look up by username first (if no @ present), then fall back to email
+        const user = login.includes("@")
+          ? await db.user.findUnique({ where: { email: login } })
+          : await db.user.findUnique({ where: { username: login } })
+            ?? await db.user.findUnique({ where: { email: login } });
 
         if (!user) return null;
 
@@ -50,6 +54,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           role: user.role,
           clientId: user.clientId,
+          mustChangePassword: user.mustChangePassword,
         };
       },
     }),
@@ -113,6 +118,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           role: user.role,
           clientId: user.clientId,
+          mustChangePassword: false,
         };
       },
     }),
@@ -121,16 +127,18 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-        token.role = (user as any).role;
-        token.clientId = (user as any).clientId ?? null;
+        token.role = user.role;
+        token.clientId = user.clientId ?? null;
+        token.mustChangePassword = user.mustChangePassword ?? false;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).id = token.id;
-        (session.user as any).role = token.role;
-        (session.user as any).clientId = token.clientId ?? null;
+        session.user.id = token.id;
+        session.user.role = token.role;
+        session.user.clientId = token.clientId ?? null;
+        session.user.mustChangePassword = token.mustChangePassword ?? false;
       }
       return session;
     },

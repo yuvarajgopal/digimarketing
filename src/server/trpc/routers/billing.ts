@@ -49,7 +49,7 @@ export const billingRouter = router({
         clientId: z.string().min(1),
         type: z.nativeEnum(BillingType),
         amount: z.number().positive(),
-        currency: z.string().default("USD"),
+        currency: z.string().default("INR"),
         description: z.string().optional(),
         period: z.string().optional(),
         dueDate: z.string().datetime().optional(),
